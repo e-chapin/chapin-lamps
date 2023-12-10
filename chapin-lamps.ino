@@ -113,19 +113,16 @@ void setup() {
 	static unsigned long lastRefreshTime = 0;
 	
 /* state machine
-
 0: waiting for long press
 1: send this lamps color
 2: receive another lamps color
 3: watch timer
 4: turn off
-
 */
 
 void loop() {
     currentMillis = millis();
     io.run();
-    // State machine
 
     if(millis() - lastRefreshTime >= REFRESH_INTERVAL && state != 0 && state != 3){
 		  lastRefreshTime += REFRESH_INTERVAL;
@@ -135,6 +132,13 @@ void loop() {
 
     switch (state) {
     case 0:
+
+      ActMillis = millis();
+      if (selected_color > 0 && ActMillis - RefMillis > on_time) {
+        state = 4;
+        break;  
+      }
+
       currentState = digitalRead(BOT);
       if(lastState == LOW && currentState == HIGH)  // Button is pressed
       {
@@ -168,21 +172,17 @@ void loop() {
       Serial.println("color received");
       Serial.println(selected_color);
       if(selected_color != lampID && selected_color != prev_selected_color){
-        // received someone elses color
+        // received someone elses new color
         fade_to_full(selected_color);
       }
       sprintf(msg, "L%d received color %s", lampID, String(selected_color));
       lamp -> save(msg);
-      state = 3;
+      state = 0;
       RefMillis = millis(); // reset timer
       break;
       // Turned on
     case 3:
-      ActMillis = millis();
-      if (ActMillis - RefMillis > on_time) {
-        state = 4;
-      }
-      break;
+      // moved to 0
       // Reset before state 0
     case 4:
       Serial.println("fade_to_off inside state 4");
