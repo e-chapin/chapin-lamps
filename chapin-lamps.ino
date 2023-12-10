@@ -18,8 +18,6 @@ AdafruitIO_Feed * lamp = io.feed("lamps"); // Change to your feed
 
 Adafruit_NeoPixel strip = Adafruit_NeoPixel(N_LEDS, LED_PIN, NEO_GRB + NEO_KHZ800);
 
-
-int recVal  {0};
 int sendVal {0};
 
 const int max_intensity = 255; //  Max intensity
@@ -27,23 +25,15 @@ const int max_intensity = 255; //  Max intensity
 int selected_color = 0;  //  Index for color vector
 int prev_selected_color = 0;
 
-int i_breath;
-
 char msg[50]; //  Custom messages for Adafruit IO
 
 //  Color definitions
+uint32_t broncos_orange = strip.Color(251, 79, 20);
 uint32_t red = strip.Color(255, 0, 0);
 uint32_t green = strip.Color(0, 255, 0);
 uint32_t blue = strip.Color(0, 0, 255);
-uint32_t yellow = strip.Color(255, 255, 0);
-uint32_t white = strip.Color(255, 255, 255);
-uint32_t pink = strip.Color(255, 0, 100);
-uint32_t cyan = strip.Color(0, 255, 255);
-uint32_t orange = strip.Color(230, 80, 0);
-uint32_t broncos_orange = strip.Color(251, 79, 20);
-uint32_t black = strip.Color(0, 0, 0);
 
-uint32_t colors[] = {broncos_orange, red, green, blue, yellow, white, orange, pink, cyan};
+uint32_t colors[] = {broncos_orange, red, green, blue};
 
 std::set<int> lampMessages {101, 102, 103, 104};
 
@@ -113,11 +103,10 @@ void setup() {
 	static unsigned long lastRefreshTime = 0;
 	
 /* state machine
-0: waiting for long press
+0: waiting for long press and watch timer
 1: send this lamps color
 2: receive another lamps color
-3: watch timer
-4: turn off
+3: turn off
 */
 
 void loop() {
@@ -135,7 +124,7 @@ void loop() {
 
       ActMillis = millis();
       if (selected_color > 0 && ActMillis - RefMillis > on_time) {
-        state = 4;
+        state = 3;
         break;  
       }
 
@@ -178,9 +167,6 @@ void loop() {
       break;
       // Turned on
     case 3:
-      // moved to 0
-      // Reset before state 0
-    case 4:
       Serial.println("fade_to_off inside state 4");
       fade_to_off(selected_color);
       prev_selected_color = 0;
@@ -238,28 +224,6 @@ void loop() {
       strip.show();
     }
 
-    // 50% intensity
-    void light_half_intensity(int ind) {
-      strip.setBrightness(max_intensity / 2);
-      for (int i = 0; i < N_LEDS; i++) {
-        strip.setPixelColor(i, colors[ind]);
-      }
-      strip.show();
-    }
-
-    // fade in
-    void fade_to_full(int ind){
-      //fade in 0% -> 100% (2sec)
-      for(int brightness = 0; brightness <= 255; brightness++){
-          strip.setBrightness(brightness);
-          for (int i = 0; i < N_LEDS; i++) {
-            strip.setPixelColor(i, colors[ind]);
-          }
-          strip.show();
-          delay(2000 / 255);  // divide 10 seconds (in milliseconds) by the number or brightness steps
-      }
-    }
-
     // fade out
     void fade_to_off(int ind){
       for(int brightness = 255; brightness >=0; brightness--){
@@ -272,77 +236,29 @@ void loop() {
       }
     }
 
-    // 100% intensity
-    void light_full_intensity(int ind) {
-      strip.setBrightness(max_intensity);
-      for (int i = 0; i < N_LEDS; i++) {
-        strip.setPixelColor(i, colors[ind]);
-      }
+  //The code that creates the gradual color change animation in the Neopixels (thank you to Adafruit for this!!)
+  void spin(int ind) {
+    strip.setBrightness(max_intensity);
+    for (int i = 0; i < N_LEDS; i++) {
+      strip.setPixelColor(i, colors[ind]);
       strip.show();
+      delay(30);
     }
+    for (int i = 0; i < N_LEDS; i++) {
+      strip.setPixelColor(i, black);
+      strip.show();
+      delay(30);
+    }
+  }
 
-    void pulse(int ind) {
-      int i;
-      int i_step = 5;
-      for (i = max_intensity; i > 80; i -= i_step) {
-        strip.setBrightness(i);
-        for (int i = 0; i < N_LEDS; i++) {
-          strip.setPixelColor(i, colors[ind]);
-          strip.show();
-          delay(1);
-        }
-      }
-      delay(20);
-      for (i = 80; i < max_intensity; i += i_step) {
-        strip.setBrightness(i);
-        for (int i = 0; i < N_LEDS; i++) {
-          strip.setPixelColor(i, colors[ind]);
-          strip.show();
-          delay(1);
-        }
-      }
+  void spinNewColor(int ind) {
+    strip.setBrightness(max_intensity);
+    for (int i = 0; i < N_LEDS; i++) {
+      strip.setPixelColor(i, colors[ind]);
+      strip.show();
+      delay(30);
     }
-
-    //The code that creates the gradual color change animation in the Neopixels (thank you to Adafruit for this!!)
-    void spin(int ind) {
-      strip.setBrightness(max_intensity);
-      for (int i = 0; i < N_LEDS; i++) {
-        strip.setPixelColor(i, colors[ind]);
-        strip.show();
-        delay(30);
-      }
-      for (int i = 0; i < N_LEDS; i++) {
-        strip.setPixelColor(i, black);
-        strip.show();
-        delay(30);
-      }
-    }
-
-    void spinNewColor(int ind) {
-      strip.setBrightness(max_intensity);
-      for (int i = 0; i < N_LEDS; i++) {
-        strip.setPixelColor(i, colors[ind]);
-        strip.show();
-        delay(30);
-      }
-    }
-
-    // Inspired by Jason Yandell
-    void breath(int ind, int i) {
-      float MaximumBrightness = max_intensity / 2;
-      float SpeedFactor = 0.02;
-      float intensity;
-      if (state == 5)
-        intensity = MaximumBrightness / 2.0 * (1 + cos(SpeedFactor * i));
-      else
-        intensity = MaximumBrightness / 2.0 * (1 + sin(SpeedFactor * i));
-      strip.setBrightness(intensity);
-      for (int ledNumber = 0; ledNumber < N_LEDS; ledNumber++) {
-        strip.setPixelColor(ledNumber, colors[ind]);
-        strip.show();
-        delay(1);
-      }
-    }
+  }
 
     //code to flash the Neopixels when a stable connection to Adafruit IO is made
     void flash(int ind) {
