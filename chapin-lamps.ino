@@ -1,5 +1,5 @@
 //import the libraries
-
+#include <set>
 #include "config.h"
 #include <NeoPixelBrightnessBus.h>
 #include <Adafruit_NeoPixel.h>
@@ -10,7 +10,7 @@
 #define BOT 16 // capacitive sensor pin
 
 //////////////////LAMP ID////////////////////////////////////////////////////////////
-int lampID = 2;
+int lampID = 1;
 /////////////////////////////////////////////////////////////////////////////////////
 
 // Adafruit inicialization
@@ -25,6 +25,7 @@ int sendVal {0};
 const int max_intensity = 255; //  Max intensity
 
 int selected_color = 0;  //  Index for color vector
+int prev_selected_color = 0;
 
 int i_breath;
 
@@ -39,9 +40,12 @@ uint32_t white = strip.Color(255, 255, 255);
 uint32_t pink = strip.Color(255, 0, 100);
 uint32_t cyan = strip.Color(0, 255, 255);
 uint32_t orange = strip.Color(230, 80, 0);
+uint32_t broncos_orange = strip.Color(251, 79, 20);
 uint32_t black = strip.Color(0, 0, 0);
 
-uint32_t colors[] = {red, green, blue, yellow, white, pink, cyan, orange};
+uint32_t colors[] = {broncos_orange, red, green, blue, yellow, white, orange, pink, cyan};
+
+std::set<int> lampMessages {101, 102, 103, 104};
 
 int state = 0;
 
@@ -50,7 +54,8 @@ unsigned long RefMillis;
 unsigned long ActMillis;
 const int send_selected_color_time = 4000;
 const int answer_time_out          = 900000;
-const int on_time                  = 900000;
+// const int on_time                  = 900000;
+const int on_time = 10000;
 
 // Disconection timeout
 unsigned long currentMillis;
@@ -76,15 +81,7 @@ void setup() {
 
   pinMode(BOT, INPUT);
 
-  //  Set ID values
-  if (lampID == 1) {
-    recVal = 20;
-    sendVal = 10;
-  }
-  else if (lampID == 2) {
-    recVal = 10;
-    sendVal = 20;
-  }
+  sendVal = 100 + lampID;
 
   //start connecting to Adafruit IO
   Serial.printf("\nConnecting to Adafruit IO with User: %s Key: %s.\n", IO_USERNAME, IO_KEY);
@@ -112,12 +109,31 @@ void setup() {
   lamp -> save(msg);
 }
 
+	static const unsigned long REFRESH_INTERVAL = 1000; // ms
+	static unsigned long lastRefreshTime = 0;
+	
+/* state machine
+
+0: waiting for long press
+1: send this lamps color
+2: receive another lamps color
+3: watch timer
+4: turn off
+
+*/
+
 void loop() {
     currentMillis = millis();
     io.run();
     // State machine
+
+    if(millis() - lastRefreshTime >= REFRESH_INTERVAL && state != 0 && state != 3){
+		  lastRefreshTime += REFRESH_INTERVAL;
+        Serial.println("current state " + String(state));
+        // Serial.println("selected color %f", selected_color);
+	  }
+
     switch (state) {
-      // Wait
     case 0:
       currentState = digitalRead(BOT);
       if(lastState == LOW && currentState == HIGH)  // Button is pressed
@@ -134,132 +150,48 @@ void loop() {
       }
       lastState = currentState;
       break;
-      // Wait for button release
     case 1:
-      selected_color = 0;
-      light_half_intensity(selected_color);
-      state = 2;
-      RefMillis = millis();
-      while(digitalRead(BOT) == HIGH){}
-      break;
-      // Color selector
-    case 2:
-      if (digitalRead(BOT) == HIGH) {
-        selected_color++;
-        if (selected_color > 9)
-          selected_color = 0;
-        while (digitalRead(BOT) == HIGH) {
-          delay(50);
-        }
-        light_half_intensity(selected_color);
-        // Reset timer each time it is touched
-        RefMillis = millis();
-      }
-      // If a color is selected more than a time, it is interpreted as the one selected
-      ActMillis = millis();
-      if (ActMillis - RefMillis > send_selected_color_time) {
-        if (selected_color == 9) //  Cancel msg
-          state = 8;
-        else
-          state = 3;
-      }
-      break;
-      // Publish msg
-    case 3:
       sprintf(msg, "L%d: color send", lampID);
       lamp -> save(msg);
-      lamp -> save(selected_color + sendVal);
-      Serial.print(selected_color + sendVal);
-      state = 4;
-      flash(selected_color);
-      light_half_intensity(selected_color);
+      lamp -> save(sendVal);
+      Serial.print("sending: " + sendVal);
+      selected_color = lampID;
+      spin(selected_color);
       delay(100);
-      flash(selected_color);
-      light_half_intensity(selected_color);
+      spin(selected_color);
+      delay(100);
+      fade_to_full(selected_color);
+      RefMillis = millis(); // reset timer
+      state = 2;
       break;
-      // Set timer
-    case 4:
-      RefMillis = millis();
-      state = 5;
-      i_breath = 0;
-      break;
-      // Wait for answer
-    case 5:
-      for (i_breath = 0; i_breath <= 314; i_breath++) {
-        breath(selected_color, i_breath);
-        ActMillis = millis();
-        if (ActMillis - RefMillis > answer_time_out) {
-          turn_off();
-          lamp -> save("L%d: Answer time out", lampID);
-          lamp -> save(0);
-          state = 8;
-          break;
-        }
+    case 2:
+      Serial.println("color received");
+      Serial.println(selected_color);
+      if(selected_color != lampID && selected_color != prev_selected_color){
+        // received someone elses color
+        fade_to_full(selected_color);
       }
-      break;
-      // Answer received
-    case 6:
-      Serial.println("Answer received");
-      light_full_intensity(selected_color);
-      RefMillis = millis();
-      sprintf(msg, "L%d: connected", lampID);
+      sprintf(msg, "L%d received color %s", lampID, String(selected_color));
       lamp -> save(msg);
-      lamp -> save(0);
-      state = 7;
+      state = 3;
+      RefMillis = millis(); // reset timer
       break;
       // Turned on
-    case 7:
+    case 3:
       ActMillis = millis();
-      //  Send pulse
-      if (digitalRead(BOT) == HIGH) {
-        lamp -> save(420 + sendVal);
-        pulse(selected_color);
-      }
       if (ActMillis - RefMillis > on_time) {
-        turn_off();
-        lamp -> save(0);
-        state = 8;
+        state = 4;
       }
       break;
       // Reset before state 0
-    case 8:
-      turn_off();
+    case 4:
+      Serial.println("fade_to_off inside state 4");
+      fade_to_off(selected_color);
+      prev_selected_color = 0;
+      selected_color = 0;
       state = 0;
       break;
       // Msg received
-    case 9:
-      sprintf(msg, "L%d: msg received", lampID);
-      lamp -> save(msg);
-      RefMillis = millis();
-      state = 10;
-      break;
-      // Send answer wait
-    case 10:
-      for (i_breath = 236; i_breath <= 549; i_breath++) {
-        breath(selected_color, i_breath);
-        if (digitalRead(BOT) == HIGH) {
-          state = 11;
-          break;
-        }
-        ActMillis = millis();
-        if (ActMillis - RefMillis > answer_time_out) {
-          turn_off();
-          sprintf(msg, "L%d: answer time out", lampID);
-          lamp -> save(msg);
-          state = 8;
-          break;
-        }
-      }
-      break;
-      // Send answer
-    case 11:
-      light_full_intensity(selected_color);
-      RefMillis = millis();
-      sprintf(msg, "L%d: answer sent", lampID);
-      lamp -> save(msg);
-      lamp -> save(1);
-      state = 7;
-      break;
     default:
         state = 0;
       break;
@@ -274,31 +206,37 @@ void loop() {
     //code that tells the ESP8266 what to do when it recieves new data from the Adafruit IO feed
     void handle_message(AdafruitIO_Data * data) {
 
+      // 66 is reboot
+      // 100 is ping pong
+      // 101 is lamp 1 color
+      // 102 is lamp 2 color
+      // 103 is lamp 3 color
+      // 104 is lamp 4 color
+
       //convert the recieved data to an INT
       int reading = data -> toInt();
+      Serial.println("Processing new message " +  String(reading));
       if (reading == 66) {
         sprintf(msg, "L%d: rebooting", lampID);
         lamp -> save(msg);
         lamp -> save(0);
         ESP.restart();
       } else if (reading == 100) {
-        sprintf(msg, "L%d: ping", lampID);
+        sprintf(msg, "L%d: pong", lampID);
         lamp -> save(msg);
-        lamp -> save(0);
-      } else if (reading == 420 + recVal) {
-        sprintf(msg, "L%d: pulse received", lampID);
-        lamp -> save(msg);
-        lamp -> save(0);
-        pulse(selected_color);
-      } else if (reading != 0 && reading / 10 != lampID) {
-        // Is it a color msg?
-        if (state == 0 && reading != 1) {
-          state = 9;
-          selected_color = reading - recVal;
+      } else if (lampMessages.count(reading) != 0) {
+        prev_selected_color = selected_color;
+        selected_color = reading - 100;
+
+        if(prev_selected_color > 0 && prev_selected_color != selected_color){
+          Serial.println("fading out old color " + String(prev_selected_color));
+          // fade out current color if different than 
+          fade_to_off(prev_selected_color);
         }
-        // Is it an answer?
-        if (state == 5 && reading == 1)
-          state = 6;
+
+        sprintf(msg, "L%d: received color %d", lampID, selected_color);
+        state = 2;
+
       }
     }
 
@@ -317,6 +255,31 @@ void loop() {
         strip.setPixelColor(i, colors[ind]);
       }
       strip.show();
+    }
+
+    // fade in
+    void fade_to_full(int ind){
+      //fade in 0% -> 100% (2sec)
+      for(int brightness = 0; brightness <= 255; brightness++){
+          strip.setBrightness(brightness);
+          for (int i = 0; i < N_LEDS; i++) {
+            strip.setPixelColor(i, colors[ind]);
+          }
+          strip.show();
+          delay(2000 / 255);  // divide 10 seconds (in milliseconds) by the number or brightness steps
+      }
+    }
+
+    // fade out
+    void fade_to_off(int ind){
+      for(int brightness = 255; brightness >=0; brightness--){
+        strip.setBrightness(brightness);
+        for (int i = 0; i < N_LEDS; i++) {
+          strip.setPixelColor(i, colors[ind]);
+        }
+        strip.show();
+        delay(2000 / 255);  // divide 10 seconds (in milliseconds) by the number or brightness steps
+      }
     }
 
     // 100% intensity
