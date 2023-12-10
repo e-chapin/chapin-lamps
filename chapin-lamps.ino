@@ -32,6 +32,7 @@ uint32_t broncos_orange = strip.Color(251, 79, 20);
 uint32_t red = strip.Color(255, 0, 0);
 uint32_t green = strip.Color(0, 255, 0);
 uint32_t blue = strip.Color(0, 0, 255);
+uint32_t black = strip.Color(0, 0, 0);
 
 uint32_t colors[] = {broncos_orange, red, green, blue};
 
