@@ -124,7 +124,7 @@ void loop() {
     currentMillis = millis();
     io.run();
 
-    if(millis() - lastRefreshTime >= REFRESH_INTERVAL && state != 0 && state != 3){
+    if(millis() - lastRefreshTime >= REFRESH_INTERVAL && state != 0){
 		  lastRefreshTime += REFRESH_INTERVAL;
         Serial.println("current state " + String(state));
         // Serial.println("selected color %f", selected_color);
@@ -160,20 +160,16 @@ void loop() {
       lamp -> save(sendVal);
       Serial.print("sending: " + sendVal);
       selected_color = lampID;
-      spin(selected_color);
-      delay(100);
-      spin(selected_color);
-      delay(100);
-      fade_to_full(selected_color);
+      spinNewColor(selected_color);
       RefMillis = millis(); // reset timer
-      state = 2;
+      state = 2; // don't get stuck
       break;
     case 2:
       Serial.println("color received");
       Serial.println(selected_color);
       if(selected_color != lampID && selected_color != prev_selected_color){
         // received someone elses new color
-        fade_to_full(selected_color);
+        spinNewColor(selected_color);
       }
       sprintf(msg, "L%d received color %s", lampID, String(selected_color));
       lamp -> save(msg);
@@ -227,12 +223,6 @@ void loop() {
       } else if (lampMessages.count(reading) != 0) {
         prev_selected_color = selected_color;
         selected_color = reading - 100;
-
-        if(prev_selected_color > 0 && prev_selected_color != selected_color){
-          Serial.println("fading out old color " + String(prev_selected_color));
-          // fade out current color if different than 
-          fade_to_off(prev_selected_color);
-        }
 
         sprintf(msg, "L%d: received color %d", lampID, selected_color);
         state = 2;
@@ -328,6 +318,15 @@ void loop() {
       }
     }
 
+    void spinNewColor(int ind) {
+      strip.setBrightness(max_intensity);
+      for (int i = 0; i < N_LEDS; i++) {
+        strip.setPixelColor(i, colors[ind]);
+        strip.show();
+        delay(30);
+      }
+    }
+
     // Inspired by Jason Yandell
     void breath(int ind, int i) {
       float MaximumBrightness = max_intensity / 2;
@@ -378,7 +377,7 @@ void loop() {
 
       bool res;
       wifiManager.setAPCallback(configModeCallback);
-      res = wifiManager.autoConnect("Lamp", "password"); // password protected ap
+      res = wifiManager.autoConnect("chapin-lamp", WIFI_SETUP_PASS); // password protected ap
 
       if (!res) {
         spin(0);
