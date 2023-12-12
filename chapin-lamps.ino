@@ -51,6 +51,8 @@ unsigned long ActMillis;
 const int send_selected_color_time = 4000;
 const int answer_time_out          = 900000;
 const int on_time                  = 1800000;
+long debounceDelay = 3000;
+long lastDebounceTime = 0;
 
 // Disconection timeout
 unsigned long currentMillis;
@@ -136,9 +138,10 @@ void loop() {
     else if(currentState == HIGH) {
       releasedTime = millis();
       long pressDuration = releasedTime - pressedTime;
-      if( pressDuration > long_press_time )
-      {
+      if( (pressDuration > long_press_time) && (releasedTime - lastDebounceTime > debounceDelay)){
+          Serial.println("debounced; changing state to 1");
           state = 1;
+          lastDebounceTime = millis();
       }
     }
     lastState = currentState;
@@ -147,7 +150,7 @@ void loop() {
     sprintf(msg, "L%d: color send", lampID);
     lamp -> save(msg);
     lamp -> save(sendVal);
-    Serial.print("sending: " + sendVal);
+    Serial.println("sending: " + sendVal);
     selected_color = lampID;
     spinNewColor(selected_color);
     RefMillis = millis(); // reset timer
