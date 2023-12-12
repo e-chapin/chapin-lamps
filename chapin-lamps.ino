@@ -7,10 +7,10 @@
 
 #define N_LEDS 24
 #define LED_PIN 5
-#define BOT 16 // capacitive sensor pin
+#define BOT D5 // capacitive sensor pin
 
 //////////////////LAMP ID////////////////////////////////////////////////////////////
-int lampID = 1;
+int lampID = 2;
 /////////////////////////////////////////////////////////////////////////////////////
 
 // Adafruit inicialization
@@ -20,7 +20,7 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(N_LEDS, LED_PIN, NEO_GRB + NEO_KHZ80
 
 int sendVal {0};
 
-const int max_intensity = 255; //  Max intensity
+const int max_intensity = 180; //  Max intensity
 
 int selected_color = 0;  //  Index for color vector
 int prev_selected_color = 0;
@@ -33,8 +33,13 @@ uint32_t red = strip.Color(255, 0, 0);
 uint32_t green = strip.Color(0, 255, 0);
 uint32_t blue = strip.Color(0, 0, 255);
 uint32_t black = strip.Color(0, 0, 0);
+uint32_t yellow = strip.Color(255, 255, 0);
+uint32_t white = strip.Color(255, 255, 255);
+uint32_t pink = strip.Color(255, 0, 100);
+uint32_t cyan = strip.Color(0, 255, 255);
+uint32_t orange = strip.Color(230, 80, 0);
 
-uint32_t colors[] = {broncos_orange, red, green, blue};
+uint32_t colors[] = {orange, broncos_orange, red, green, blue, yellow, white, orange, pink, cyan};
 
 std::set<int> lampMessages {101, 102, 103, 104};
 
@@ -45,8 +50,7 @@ unsigned long RefMillis;
 unsigned long ActMillis;
 const int send_selected_color_time = 4000;
 const int answer_time_out          = 900000;
-// const int on_time                  = 900000;
-const int on_time = 10000;
+const int on_time                  = 1800000;
 
 // Disconection timeout
 unsigned long currentMillis;
@@ -111,80 +115,75 @@ void setup() {
 */
 
 void loop() {
-    currentMillis = millis();
-    io.run();
+  
+  currentMillis = millis();
+  io.run();
 
-    if(millis() - lastRefreshTime >= REFRESH_INTERVAL && state != 0){
-		  lastRefreshTime += REFRESH_INTERVAL;
-        Serial.println("current state " + String(state));
-        // Serial.println("selected color %f", selected_color);
-	  }
+  switch (state) {
+  case 0:
 
-    switch (state) {
-    case 0:
+    ActMillis = millis();
+    if (selected_color > 0 && ActMillis - RefMillis > on_time) {
+      state = 3;
+      break;  
+    }
 
-      ActMillis = millis();
-      if (selected_color > 0 && ActMillis - RefMillis > on_time) {
-        state = 3;
-        break;  
-      }
-
-      currentState = digitalRead(BOT);
-      if(lastState == LOW && currentState == HIGH)  // Button is pressed
+    currentState = digitalRead(BOT);
+    if(lastState == LOW && currentState == HIGH)  // Button is pressed
+    {
+      pressedTime = millis();
+    }
+    else if(currentState == HIGH) {
+      releasedTime = millis();
+      long pressDuration = releasedTime - pressedTime;
+      if( pressDuration > long_press_time )
       {
-        pressedTime = millis();
+          state = 1;
       }
-      else if(currentState == HIGH) {
-        releasedTime = millis();
-        long pressDuration = releasedTime - pressedTime;
-        if( pressDuration > long_press_time )
-        {
-            state = 1;
-        }
-      }
-      lastState = currentState;
-      break;
-    case 1:
-      sprintf(msg, "L%d: color send", lampID);
-      lamp -> save(msg);
-      lamp -> save(sendVal);
-      Serial.print("sending: " + sendVal);
-      selected_color = lampID;
+    }
+    lastState = currentState;
+    break;
+  case 1:
+    sprintf(msg, "L%d: color send", lampID);
+    lamp -> save(msg);
+    lamp -> save(sendVal);
+    Serial.print("sending: " + sendVal);
+    selected_color = lampID;
+    spinNewColor(selected_color);
+    RefMillis = millis(); // reset timer
+    state = 2; // don't get stuck
+    break;
+  case 2:
+    Serial.println("color received");
+    Serial.println(selected_color);
+    if(selected_color != lampID && selected_color != prev_selected_color){
+      // received someone elses new color
       spinNewColor(selected_color);
-      RefMillis = millis(); // reset timer
-      state = 2; // don't get stuck
-      break;
-    case 2:
-      Serial.println("color received");
-      Serial.println(selected_color);
-      if(selected_color != lampID && selected_color != prev_selected_color){
-        // received someone elses new color
-        spinNewColor(selected_color);
-      }
-      sprintf(msg, "L%d received color %s", lampID, String(selected_color));
-      lamp -> save(msg);
-      state = 0;
-      RefMillis = millis(); // reset timer
-      break;
-      // Turned on
-    case 3:
-      Serial.println("fade_to_off inside state 4");
-      fade_to_off(selected_color);
-      prev_selected_color = 0;
-      selected_color = 0;
-      state = 0;
-      break;
-      // Msg received
-    default:
-        state = 0;
-      break;
     }
-    if ((currentMillis - previousMillis >= conection_time_out)) {
-        if (WiFi.status() != WL_CONNECTED)
-          ESP.restart();
-        previousMillis = currentMillis;
-      }
-    }
+    sprintf(msg, "L%d received color %s", lampID, String(selected_color));
+    lamp -> save(msg);
+    state = 0;
+    RefMillis = millis(); // reset timer
+    break;
+    // Turned on
+  case 3:
+    Serial.println("fade_to_off inside state 4");
+    fade_to_off(selected_color);
+    prev_selected_color = 0;
+    selected_color = 0;
+    state = 0;
+    break;
+    // Msg received
+  default:
+      state = 0;
+    break;
+  }
+  if ((currentMillis - previousMillis >= conection_time_out)) {
+    if (WiFi.status() != WL_CONNECTED)
+      ESP.restart();
+    previousMillis = currentMillis;
+  }
+}
 
     //code that tells the ESP8266 what to do when it recieves new data from the Adafruit IO feed
     void handle_message(AdafruitIO_Data * data) {
@@ -294,7 +293,7 @@ void loop() {
 
       bool res;
       wifiManager.setAPCallback(configModeCallback);
-      res = wifiManager.autoConnect("chapin-lamp", WIFI_SETUP_PASS); // password protected ap
+      res = wifiManager.autoConnect("chapin-lamp-2", WIFI_SETUP_PASS); // password protected ap
 
       if (!res) {
         spin(0);
