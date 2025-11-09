@@ -1,16 +1,36 @@
 //import the libraries
 #include <set>
-#include "config.h"
-#include <NeoPixelBrightnessBus.h>
+#include "arduino_secrets.h"
+
+
 #include <Adafruit_NeoPixel.h>
-#include <WiFiManager.h>
+#include <ESP8266WiFi.h>
+#include <ESP8266WiFiMulti.h>
+
+
+#include <AdafruitIO_Feed.h>
+#include "AdafruitIO_WiFi.h"
+
+AdafruitIO_WiFi io(IO_USERNAME, IO_KEY, "", "");
+
+ESP8266WiFiMulti wifiMulti;
+boolean connectioWasAlive = true;
+
+// WiFi connect timeout per AP. Increase when connecting takes longer.
+const uint32_t connectTimeoutMs = 5000;
 
 #define N_LEDS 24
 #define LED_PIN 5
-#define BOT D5 // capacitive sensor pin
+// #define BOT D5 // Everyone else capacitive sensor pin
+#define BOT D0 // Eric capacitive sensor pin
+
+
 
 //////////////////LAMP ID////////////////////////////////////////////////////////////
-int lampID = 2;
+ int lampID = 1; // eric
+// int lampID = 2; // katie
+// int lampID = 3; // andie
+// int lampID = 4; // mom
 /////////////////////////////////////////////////////////////////////////////////////
 
 // Adafruit inicialization
@@ -30,8 +50,9 @@ char msg[50]; //  Custom messages for Adafruit IO
 //  Color definitions
 uint32_t broncos_orange = strip.Color(251, 79, 20);
 uint32_t red = strip.Color(255, 0, 0);
-uint32_t green = strip.Color(0, 255, 0);
-uint32_t blue = strip.Color(0, 0, 255);
+uint32_t r = strip.Color(208, 16, 16);
+uint32_t green = strip.Color(152, 233, 19);
+uint32_t blue = strip.Color(32, 97, 200);
 uint32_t black = strip.Color(0, 0, 0);
 uint32_t yellow = strip.Color(255, 255, 0);
 uint32_t white = strip.Color(255, 255, 255);
@@ -39,9 +60,9 @@ uint32_t pink = strip.Color(255, 0, 100);
 uint32_t cyan = strip.Color(0, 255, 255);
 uint32_t orange = strip.Color(230, 80, 0);
 
-uint32_t colors[] = {orange, broncos_orange, red, green, blue, yellow, white, orange, pink, cyan};
+uint32_t colors[] = {orange, broncos_orange, r, green, blue, yellow, white, orange, pink, cyan};
 
-std::set<int> lampMessages {101, 102, 103, 104};
+std::set<int> lampMessages {101, 102, 103, 104, 105};
 
 int state = 0;
 
@@ -68,13 +89,44 @@ unsigned long releasedTime = 0;
 
 void setup() {
   //Start the serial monitor for debugging and status
-  Serial.begin(115200);
+  Serial.begin(9600);
+
+  delay(10);
+  Serial.println("starting\n");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.persistent(true);
+
+  // Add all WiFi networks from secrets file
+  for (int i = 0; i < NUM_WIFI_NETWORKS; i++) {
+    wifiMulti.addAP(wifiNetworks[i].ssid, wifiNetworks[i].password);
+    Serial.printf("Added network: %s\n", wifiNetworks[i].ssid);
+  }
+
+    Serial.println("Connecting ...");
+    int i = 0;
+    while (wifiMulti.run() != WL_CONNECTED) { // Wait for the Wi-Fi to connect: scan for Wi-Fi networks, and connect to the strongest of the networks above
+      delay(1000);
+      Serial.print('.');
+    }
+    Serial.println('\n');
+    Serial.print("Connected to ");
+    Serial.println(WiFi.SSID());              // Tell us what network we're connected to
+    Serial.print("IP address:\t");
+    Serial.println(WiFi.localIP());           // Send the IP address of the ESP8266 to the computer
+
+  
+  
+
+  Serial.println('\n');
+  Serial.println("Connection established!");  
+  Serial.print("IP address:\t");
+  Serial.println(WiFi.localIP());         // Send the IP address of the ESP8266 to the computer
+
 
   // Activate neopixels
   strip.begin();
   strip.show(); // Initialize all pixels to 'off'
-
-  wificonfig();
 
   pinMode(BOT, INPUT);
 
@@ -163,6 +215,9 @@ void loop() {
       // received someone elses new color
       spinNewColor(selected_color);
     }
+    // else{
+      // spinNewColor(selected_color);
+    // }
     sprintf(msg, "L%d received color %s", lampID, String(selected_color));
     lamp -> save(msg);
     state = 0;
@@ -187,6 +242,7 @@ void loop() {
     previousMillis = currentMillis;
   }
 }
+
 
     //code that tells the ESP8266 what to do when it recieves new data from the Adafruit IO feed
     void handle_message(AdafruitIO_Data * data) {
@@ -273,42 +329,4 @@ void loop() {
 
       delay(200);
 
-    }
-
-    void configModeCallback(WiFiManager *myWiFiManager){
-      Serial.println("Entered config mode");
-      strip.setBrightness(max_intensity);
-      for (int i = 0; i < 24; i++)
-      {
-        strip.setPixelColor(i, colors[(int)i / 3]);
-      }
-      strip.show();
-    }
-
-    void wificonfig() {
-      WiFi.mode(WIFI_STA);
-      WiFiManager wifiManager;
-
-      std::vector<const char *> menu = {"wifi","info"};
-      wifiManager.setMenu(menu);
-      // set dark theme
-      wifiManager.setClass("invert");
-
-      bool res;
-      wifiManager.setAPCallback(configModeCallback);
-      res = wifiManager.autoConnect("chapin-lamp-2", WIFI_SETUP_PASS); // password protected ap
-
-      if (!res) {
-        spin(0);
-        delay(50);
-        turn_off();
-      } else {
-        //if you get here you have connected to the WiFi
-        spin(3);
-        delay(50);
-        turn_off();
-      }
-      Serial.println("Ready");
-      Serial.print("IP address: ");
-      Serial.println(WiFi.localIP());
     }
